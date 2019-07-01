@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion : '2010-09-09'
+
+Description: "Nexmo consumer"
+
+Parameters:
+
+  GitHubRepositoryName:
+    Description: The name of the repository hosted on GitHub
+    Type: String
+    AllowedPattern: ^[a-z0-9\-]*$
+
+  Stage:
+    Description: A stage name that will be prefix to the resources name
+    Type: String
+    AllowedPattern: ^[a-z0-9\-]*$
+    Default: "canary"
+
+  AllocatedMemory:
+    Description: How much memory do we allocate to the Lambda function?
+    Type: Number
+    Default: 128
+
+  RecipientEmail:
+    Description: An e-mail address of the recipient who should receive a notification about new SMS.
+    Type: String
+
+Resources:
+
+  ApiGatewayRestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "${AWS::StackName}"
+      MinimumCompressionSize: 0
+      BinaryMediaTypes:
+        - "*/*"
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # NOTE: The definition of the API (resources, methods, cache configuration) is immutable,
+  # what does mean # that any change made to AWS::ApiGateway::Deployment does not refresh definition
+  # (with a exception of the 'Description' which is mutable).
+  # Also, removed AWS::ApiGateway::Deployment resource from template does not disappear,
+  # they are browseable in 'Deployment History' in web console and allows to rollback the definiton change.
+  #
+  # To create new version of the API simply increment a number which is a suffix of the resource.
+  # It will inform CloudFormation, it should create new deployment with a new API definition.
+  ApiGatewayDeployment0:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiGatewayMethodNexmo
+      - ApiGatewayMethodOptionsRoot
+      - ApiGatewayMethodOptionsNexmo
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      StageName: !Ref Stage
+      Description: "ApiGatewayDeployment0"
+
+  GatewayResponseDefault4XX:
+    Type: 'AWS::ApiGateway::GatewayResponse'
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-CSRF-Token,Cache-Control'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+      ResponseType: DEFAULT_4XX
+      RestApiId: !Ref ApiGatewayRestApi
+
+  GatewayResponseDefault5XX:
+    Type: 'AWS::ApiGateway::GatewayResponse'
+    Properties:
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-CSRF-Token,Cache-Control'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+      ResponseType: DEFAULT_5XX
+      RestApiId: !Ref ApiGatewayRestApi
+
+  ApiGatewayMethodOptionsRoot:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !GetAtt ApiGatewayRestApi.RootResourceId
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseModels: {}
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+      RequestParameters: {}
+      Integration:
+        Type: MOCK
+        ContentHandling: CONVERT_TO_TEXT
+        RequestTemplates:
+          application/json: "{\"statusCode\":200}"
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-CSRF-Token,Cache-Control'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ""
+
+  ApiGatewayResourceNexmo:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      PathPart: "nexmo"
+
+  ApiGatewayMethodOptionsNexmo:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: OPTIONS
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayResourceNexmo
+      MethodResponses:
+        - StatusCode: "200"
+          ResponseModels: {}
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+      RequestParameters: {}
+      Integration:
+        Type: MOCK
+        ContentHandling: CONVERT_TO_TEXT
+        RequestTemplates:
+          application/json: "{\"statusCode\":200}"
+        IntegrationResponses:
+          - StatusCode: "200"
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent,X-CSRF-Token,Cache-Control'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ""
+
+  ApiGatewayMethodNexmo:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGatewayRestApi
+      ResourceId: !Ref ApiGatewayResourceNexmo
+      HttpMethod: POST
+      AuthorizationType: "NONE"
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunctionApi.Arn}/invocations
+
+  LambdaApiGatewayExecutionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt LambdaFunctionApi.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/*"
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: "CloudWatch"
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: SES
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource: !Sub "arn:aws:ses:${AWS::Region}:${AWS::AccountId}:identity/${RecipientEmail}"
+
+  LambdaFunctionApi:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: "handler"
+      Code: "../dist"
+      Runtime: go1.x
+      MemorySize: 128
+      Timeout: 30
+      Environment:
+        Variables:
+          RECIPIENT_EMAIL: !Ref RecipientEmail
+
+Outputs:
+
+  EndpointUrl:
+    Description: Endpoint URL for the API.
+    Value: !Sub "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
